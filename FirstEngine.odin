@@ -10,12 +10,17 @@ import "core:slice"
 import gl "vendor:OpenGL"
 import SDL "vendor:sdl2"
 
-SEED : i64 = 235235235
-
-GL_VERSION_MAJOR :: 3
-GL_VERSION_MINOR :: 3
-
 GameState :: enum{PLAY, EXIT}
+
+Buttons :: struct {
+    w, s, a, d,
+    sl, sr,
+    m : bool,
+}
+
+EngineTime :: struct {
+    fr1, fr2 : u32,
+}
 
 Position :: struct {
     x: i16,
@@ -29,7 +34,7 @@ Color :: struct {
 }
 
 // Palette is Aurora by DawnBringer (https://lospec.com/palette-list/aurora)
-Palette := [256]Color{
+palette := [256]Color{
 {0,0,0},{17,17,17},{34,34,34},{51,51,51},{68,68,68},{85,85,85},{102,102,102},{119,119,119},
 {136,136,136},{153,153,153},{170,170,170},{187,187,187},{204,204,204},{221,221,221},{238,238,238},{255,255,255},
 {0,127,127},{63,191,191},{0,255,255},{191,255,255},{129,129,255},{0,255,0},{63,63,191},{0,0,127},
@@ -88,23 +93,43 @@ Sprite :: struct {
     height: i16,
 }
 
-main :: proc() {
-    screenWidth : i32 = 1024
-    screenHeight : i32 = 768
+EngineContext :: struct {
+    window : ^SDL.Window,
+    renderer : ^SDL.Renderer,
+    keys : Buttons,
+    time : EngineTime,
+    tick: int,
+}
 
-    // Initialize SDL with all categories
-    SDL.Init(SDL.INIT_EVERYTHING);
+// Declare global state
+engine : EngineContext
+
+pixelWidth : i16 = 160
+pixelHeight : i16 = 120
+pixelRatio : i16 = 4
+
+halfWidth : i16 = pixelWidth / 2
+halfHeight : i16 = pixelHeight / 2
+
+main :: proc() {
+    // Initialize SDL
+    SDL.Init({.TIMER, .AUDIO, .VIDEO, .EVENTS});
     defer SDL.Quit()
 
-    // Create window for app
-    window := SDL.CreateWindow("Game Engine", SDL.WINDOWPOS_CENTERED, SDL.WINDOWPOS_CENTERED, screenWidth, screenHeight, {.OPENGL})
-    if window == nil {
-        fmt.eprintln("Failed to create window")
+    // Create window and renderer for app
+    error := SDL.CreateWindowAndRenderer(
+        (i32)(pixelWidth*pixelRatio), (i32)(pixelHeight*pixelRatio),
+        SDL.WINDOW_SHOWN,
+        &engine.window, &engine.renderer)
+    if error != 0 {
+        fmt.eprintln(SDL.GetError())
         return
     }
-    defer SDL.DestroyWindow(window)
+    defer(SDL.DestroyRenderer(engine.renderer))
+    defer(SDL.DestroyWindow(engine.window))
 
     // TODO: Add sdl based rendering
+    
 
     // Game loop
     currentState : GameState = .PLAY
@@ -118,19 +143,69 @@ main :: proc() {
             }
         }
 
-        
-
-        SDL.GL_SwapWindow(window)
+        Display()
     }
+}
+
+RenderCustomPixel :: proc(x, y : i16, c : u8) {
+    testRect := SDL.Rect{(i32)(x*pixelRatio), (i32)(y*pixelRatio), (i32)(pixelRatio), (i32)(pixelRatio)}
+    SDL.SetRenderDrawColor(engine.renderer, palette[c].r, palette[c].g, palette[c].b, 255)
+    SDL.RenderFillRect(engine.renderer, &testRect)
+}
+
+ClearBackground :: proc() {
+    SDL.SetRenderDrawColor(engine.renderer, palette[8].r, palette[8].g, palette[8].b, 255)
+    SDL.RenderClear(engine.renderer)
+}
+
+MovePlayer :: proc() {
+    if engine.keys.a && !engine.keys.m { fmt.println("left") }
+    if engine.keys.d && !engine.keys.m { fmt.println("right") }
+    if engine.keys.w && !engine.keys.m { fmt.println("up") }
+    if engine.keys.s && !engine.keys.m { fmt.println("down") }
+
+    if engine.keys.sl { fmt.println("strafe left") }
+    if engine.keys.sr { fmt.println("strafe right") }
+
+    if engine.keys.a && engine.keys.m { fmt.println("look up") }
+    if engine.keys.d && engine.keys.m { fmt.println("look down") }
+    if engine.keys.w && engine.keys.m { fmt.println("move up") }
+    if engine.keys.s && engine.keys.m { fmt.println("move down") }
+}
+
+Draw3D :: proc() {
+    c : u8 = 0
+    for y : i16 = 0; y < halfHeight; y+=1 {
+        for x : i16 = 0; x < halfWidth; x+=1 {
+            RenderCustomPixel(x, y, c)
+            c += 1
+        }
+    }
+    //frame rate
+    engine.tick += 1
+    if engine.tick > 20 { engine.tick = 0 }
+    RenderCustomPixel(halfWidth, halfHeight + (i16)(engine.tick), 0)
+}
+
+Display :: proc() {
+    if(engine.time.fr1-engine.time.fr2>=50) {
+        ClearBackground()
+        MovePlayer()
+        Draw3D()
+
+        engine.time.fr2 = engine.time.fr1
+        SDL.RenderPresent(engine.renderer)
+    }
+
+    engine.time.fr1 = SDL.GetTicks()
 }
 
 GenerateTexture :: proc(texSource: Texture, allocator := context.allocator, loc := #caller_location) -> []u8 {
     result := make([]u8, len(texSource.pixels) * 3, allocator, loc)
     for color, index in texSource.pixels {
-        result[index * 3] = Palette[color].r
-        result[index * 3 + 1] = Palette[color].g
-        result[index * 3 + 2] = Palette[color].b
+        result[index * 3] = palette[color].r
+        result[index * 3 + 1] = palette[color].g
+        result[index * 3 + 2] = palette[color].b
     }
     return result
 }
-

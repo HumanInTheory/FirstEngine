@@ -104,101 +104,7 @@ main :: proc() {
     }
     defer SDL.DestroyWindow(window)
 
-    // Create GL Context
-    gl_context := SDL.GL_CreateContext(window)
-    if gl_context == nil {
-        fmt.eprintln("Failed to create GL context")
-        return
-    }
-    defer SDL.GL_DeleteContext(gl_context)
-
-    gl.load_up_to(GL_VERSION_MAJOR, GL_VERSION_MINOR, SDL.gl_set_proc_address)
-
-    // create shader program
-    shader, shader_ok := gl.load_shaders_file("./colorShading.vert", "./colorShading.frag")
-    if !shader_ok {
-        fmt.eprintln("Failed to create GLSL shader program")
-        return
-    }
-    defer gl.DeleteProgram(shader)
-
-    gl.UseProgram(shader)
-
-    // Create uniform variables
-    textureUniform := gl.GetUniformLocation(shader, "ourTexture")
-    if textureUniform == -1 {
-        fmt.eprintln("Failed to link to texture uniform in shader")
-        return
-    }
-
-    /*screenSizeUniform := gl.GetUniformLocation(shader, "screenSize")
-    if screenSizeUniform == -1 {
-        fmt.eprintln("Failed to link to screen size uniform in shader")
-        return
-    }*/
-
-    // Create texture
-    devTexture := Texture{8, 8, 
-        {0,  1,  2,  3,  4,  5,  6,  7,
-         8,  9, 10, 11, 12, 13, 14, 15,
-        16, 17, 18, 19, 20, 21, 22, 23,
-        24, 25, 26, 27, 28, 29, 30, 31,
-        16,  0, 16,  0, 16,  0, 16,  0,
-        16, 16,  0,  0, 16, 16,  0,  0,
-        16, 16, 16, 16,  0,  0,  0,  0,
-        248, 249, 250, 251, 252, 253, 254, 255}}
-
-    stonePalette := []u8{5, 6, 7, 8, 9, 10}
-    stoneTexture := TextureFromNoise(16, 16, stonePalette)
-
-    tex: u32
-    gl.GenTextures(1, &tex); defer gl.DeleteTextures(1, &tex)
-    gl.BindTexture(gl.TEXTURE_2D, tex)
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-    textureBuffer := GenerateTexture(stoneTexture) // No defer, see 140
-    gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, i32(stoneTexture.width), i32(stoneTexture.height), 0, gl.RGB, gl.UNSIGNED_BYTE, slice.first_ptr(textureBuffer))
-    gl.GenerateMipmap(gl.TEXTURE_2D)
-    delete(textureBuffer) // Explicit deletion
-
-    // initialization of OpenGL buffers
-    vbo, ebo: u32
-    gl.GenBuffers(1, &vbo); defer gl.DeleteBuffers(1, &vbo)
-    gl.GenBuffers(1, &ebo); defer gl.DeleteBuffers(1, &ebo)
-
-    // Create sprite
-    sprite := Sprite{-1, -1, 2, 2}
-    spriteVertices := []Vertex{
-        {{sprite.x,                sprite.y},                 {0.0, 0.0}, {255, 255, 255}, 0},
-        {{sprite.x + sprite.width, sprite.y},                 {2.0, 0.0}, {255,   0, 255}, 0},
-        {{sprite.x,                sprite.y + sprite.height}, {0.0, 2.0}, {255,   0, 255}, 0},
-        {{sprite.x + sprite.width, sprite.y + sprite.height}, {2.0, 2.0}, {  0,   0, 255}, 0},
-    }
-
-    spriteIndices := []u16{
-        0, 1, 2,
-        1, 2, 3,
-    }
-
-    // Bind vertex buffer object
-    gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-    gl.BufferData(gl.ARRAY_BUFFER, len(spriteVertices)*size_of(spriteVertices[0]), raw_data(spriteVertices), gl.STATIC_DRAW)
-    gl.EnableVertexAttribArray(0)
-    gl.EnableVertexAttribArray(1)
-    gl.EnableVertexAttribArray(2)
-    // Position attribute pointer
-    gl.VertexAttribPointer(0, 2, gl.SHORT, false, size_of(spriteVertices[0]), offset_of(spriteVertices[0].pos))
-    // Texture attribute pointer
-    gl.VertexAttribPointer(1, 2, gl.HALF_FLOAT, false, size_of(spriteVertices[0]), offset_of(spriteVertices[0].tex))
-    // Color attribute pointer
-    gl.VertexAttribPointer(2, 3, gl.UNSIGNED_BYTE, true, size_of(spriteVertices[0]), offset_of(spriteVertices[0].color))
-
-    gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(spriteIndices)*size_of(spriteIndices[0]), raw_data(spriteIndices), gl.STATIC_DRAW)
-
-    // Set clear/BG color
-    gl.ClearColor(0.0, 0.0, 1.0, 1.0)
+    // TODO: Add sdl based rendering
 
     // Game loop
     currentState : GameState = .PLAY
@@ -212,13 +118,7 @@ main :: proc() {
             }
         }
 
-        //gl.Uniform2i(screenSizeUniform, screenWidth, screenHeight)
-
-        // Draw game
-        gl.ClearDepth(1.0)
-        gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-
-        gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, nil)
+        
 
         SDL.GL_SwapWindow(window)
     }
@@ -234,35 +134,3 @@ GenerateTexture :: proc(texSource: Texture, allocator := context.allocator, loc 
     return result
 }
 
-TextureFromNoise :: proc(width: u8, height: u8, colors: []u8, allocator := context.allocator, loc := #caller_location) -> Texture {
-    // Create Struct
-    result : Texture
-    result.width = width;
-    result.height = height;
-    result.pixels = make([]u8, u16(width) * u16(height), allocator, loc)
-
-    scale := 2.0
-    scaleX := math.PI * 2.0 / f64(width)
-    scaleY := math.PI * 2.0 / f64(height)
-    latitude : f64 = 0.0
-    longitude : f64 = 0.0
-    // Populate
-    for x in 0..<width {
-        for y in 0..<height {
-            fmt.println(scale * math.cos(latitude) * math.cos(longitude))
-
-            result.pixels[x + y * width] = PalettizeNoise(colors, noise.noise_3d_improve_xy(SEED, noise.Vec3{scale * math.cos(latitude) * math.cos(longitude), 
-                                                                                                  scale * math.cos(latitude) * math.sin(longitude),
-                                                                                                  scale * math.sin(latitude)}))
-            latitude += scaleY
-        }
-        longitude += scaleX
-        latitude = 0.0
-    }
-
-    return result
-}
-
-PalettizeNoise :: proc(colors: []u8, value: f32) -> u8 {
-    return colors[int((value * 0.5 + 0.5) * f32(len(colors) - 2))]
-}

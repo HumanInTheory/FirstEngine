@@ -22,9 +22,17 @@ EngineTime :: struct {
     fr1, fr2 : u32,
 }
 
-Position :: struct {
-    x: i16,
-    y: i16,
+Wall :: struct {
+    x1, y1,
+    x2, y2 : i32,
+    color : u8,
+}
+
+Sector :: struct {
+    wallStart, wallEnd : i32,
+    bottom, top : i32,
+    centerX, centerY : i32,
+    distanceY : i32,
 }
 
 Color :: struct {
@@ -68,29 +76,8 @@ palette := [256]Color{
 {140,20,190},{90,24,123},{100,20,100},{65,0,98},{50,10,70},{85,25,55},{160,25,130},{200,0,120},
 {255,80,191},{255,106,197},{250,160,185},{252,58,140},{230,30,120},{189,16,57},{152,52,77},{145,20,55}}
 
-Texture :: struct {
-    width: u8,
-    height: u8,
-    pixels: []u8,
-}
-
-UVCoords :: struct {
-    u: f16,
-    v: f16,
-}
-
-Vertex :: struct {
-    pos: Position,
-    tex: UVCoords,
-    color: Color,
-    pad: u8,
-}
-
-Sprite :: struct {
-    x: i16,
-    y: i16,
-    width: i16,
-    height: i16,
+Trigonometry :: struct {
+    cos, sin: [360]f32,
 }
 
 EngineContext :: struct {
@@ -101,15 +88,26 @@ EngineContext :: struct {
     tick: int,
 }
 
+Player :: struct {
+    x, y, z: i32,
+    a, l : i32,
+}
+
 // Declare global state
 engine : EngineContext
+trig : Trigonometry
+player : Player
+walls : [30]Wall
+sectors : [30]Sector
 
-pixelWidth : i16 = 160
-pixelHeight : i16 = 120
-pixelRatio : i16 = 4
+pixelWidth : i32 = 160
+pixelHeight : i32 = 120
+pixelRatio : i32 = 4
 
-halfWidth : i16 = pixelWidth / 2
-halfHeight : i16 = pixelHeight / 2
+halfWidth : i32 = pixelWidth / 2
+halfHeight : i32 = pixelHeight / 2
+
+sectorCount : i32 = 4
 
 main :: proc() {
     // Initialize SDL
@@ -130,6 +128,8 @@ main :: proc() {
 
     // TODO: Add sdl based rendering
     
+    // Game Init
+    Init()
 
     // Game loop
     currentState : GameState = .PLAY
@@ -140,6 +140,40 @@ main :: proc() {
             #partial switch event.type {
                 case .QUIT:
                     currentState = .EXIT
+                case .KEYDOWN:
+                    #partial switch event.key.keysym.sym {
+                        case .w:
+                            engine.keys.w = true
+                        case .s:
+                            engine.keys.s = true
+                        case .a:
+                            engine.keys.a = true
+                        case .d:
+                            engine.keys.d = true
+                        case .m:
+                            engine.keys.m = true
+                        case .COMMA:
+                            engine.keys.sl = true
+                        case .PERIOD:
+                            engine.keys.sr = true
+                    } 
+                case .KEYUP:
+                    #partial switch event.key.keysym.sym {
+                        case .w:
+                            engine.keys.w = false
+                        case .s:
+                            engine.keys.s = false
+                        case .a:
+                            engine.keys.a = false
+                        case .d:
+                            engine.keys.d = false
+                        case .m:
+                            engine.keys.m = false
+                        case .COMMA:
+                            engine.keys.sl = false
+                        case .PERIOD:
+                            engine.keys.sr = false
+                    } 
             }
         }
 
@@ -147,10 +181,12 @@ main :: proc() {
     }
 }
 
-RenderCustomPixel :: proc(x, y : i16, c : u8) {
-    testRect := SDL.Rect{(i32)(x*pixelRatio), (i32)(y*pixelRatio), (i32)(pixelRatio), (i32)(pixelRatio)}
-    SDL.SetRenderDrawColor(engine.renderer, palette[c].r, palette[c].g, palette[c].b, 255)
-    SDL.RenderFillRect(engine.renderer, &testRect)
+RenderCustomPixel :: proc(x, y : i32, c : u8) {
+    if x > 0 && x < pixelWidth && y > 0 && y < pixelWidth {
+        testRect := SDL.Rect{(i32)(x*pixelRatio), (i32)((pixelHeight - y)*pixelRatio), (i32)(pixelRatio), (i32)(pixelRatio)}
+        SDL.SetRenderDrawColor(engine.renderer, palette[c].r, palette[c].g, palette[c].b, 255)
+        SDL.RenderFillRect(engine.renderer, &testRect)
+    }
 }
 
 ClearBackground :: proc() {
@@ -159,36 +195,135 @@ ClearBackground :: proc() {
 }
 
 MovePlayer :: proc() {
-    if engine.keys.a && !engine.keys.m { fmt.println("left") }
-    if engine.keys.d && !engine.keys.m { fmt.println("right") }
-    if engine.keys.w && !engine.keys.m { fmt.println("up") }
-    if engine.keys.s && !engine.keys.m { fmt.println("down") }
+    if engine.keys.a && !engine.keys.m { player.a -= 4; if player.a < 0 { player.a += 360 }}
+    if engine.keys.d && !engine.keys.m { player.a += 4; if player.a > 359 { player.a -= 360 }}
+    
+    dx := (i32)(trig.sin[player.a] * 10.0)
+    dy := (i32)(trig.cos[player.a] * 10.0)
+    if engine.keys.w && !engine.keys.m { player.x += dx; player.y += dy }
+    if engine.keys.s && !engine.keys.m { player.x -= dx; player.y -= dy }
 
-    if engine.keys.sl { fmt.println("strafe left") }
-    if engine.keys.sr { fmt.println("strafe right") }
+    if engine.keys.sr { player.x += dy; player.y -= dx }
+    if engine.keys.sl { player.x -= dy; player.y += dx }
 
-    if engine.keys.a && engine.keys.m { fmt.println("look up") }
-    if engine.keys.d && engine.keys.m { fmt.println("look down") }
-    if engine.keys.w && engine.keys.m { fmt.println("move up") }
-    if engine.keys.s && engine.keys.m { fmt.println("move down") }
+    if engine.keys.a && engine.keys.m { player.l -= 1 }
+    if engine.keys.d && engine.keys.m { player.l += 1 }
+    if engine.keys.w && engine.keys.m { player.z -= 4 }
+    if engine.keys.s && engine.keys.m { player.z += 4 }
+}
+
+ClipBehindPlayer :: proc(x1, y1, z1, x2, y2, z2 : i32) -> (x, y, z : i32) {
+    da : f32 = (f32)(y1) // distance plane -> point a
+    db : f32 = (f32)(y2) // distance plane -> point b
+    d : f32 = da - db; if d == 0 { d = 1 }
+    s : f32 = da / d // intersection factor (0 - 1)
+    
+    x = x1 + (i32)(s * ((f32)(x2) - (f32)(x1)))
+    y = y1 + (i32)(s * ((f32)(y2) - (f32)(y1))); if y == 0 { y = 1 }
+    z = z1 + (i32)(s * ((f32)(z2) - (f32)(z1)))
+
+    fmt.println(x, y, z)
+    return x, y, z
+}
+
+DrawWall :: proc(x1, x2, b1, b2, t1, t2 : i32, color : u8) {
+    dyb : i32 = b2 - b1                       // y distance of bottom
+    dyt : i32 = t2 - t1                       // y distance of top
+    dx : i32 = x2 - x1; if dx == 0 { dx = 1 } // x distance
+    xs : i32 = x1                             // intial x
+    // clip x
+    clip_x1 := x1
+    clip_x2 := x2
+    if x1 < 0 { clip_x1 = 0 }
+    if x2 < 0 { clip_x2 = 0 }
+    if x1 > pixelWidth { clip_x1 = pixelWidth }
+    if x2 > pixelWidth { clip_x2 = pixelWidth }
+    // draw x vertical lines
+    for x : i32 = clip_x1; x < clip_x2; x+=1 {
+        y1 : i32 = dyb * (x - xs) / dx + b1
+        y2 : i32 = dyt * (x - xs) / dx + t1
+        // clip y
+        clip_y1 := y1
+        clip_y2 := y2
+        if y1 < 0 { clip_y1 = 0 }
+        if y2 < 0 { clip_y2 = 0 }
+        if y1 > pixelWidth { clip_y1 = pixelWidth }
+        if y2 > pixelWidth { clip_y2 = pixelWidth }
+        for y : i32 = clip_y1; y < clip_y2; y+=1 {
+            RenderCustomPixel(x, y, color)
+        }
+    }
+}
+
+Distance :: proc(x1, y1, x2, y2 : i32) -> i32 {
+    return (i32)(math.sqrt(math.pow((f32)(x2 - x1), 2.0) + math.pow((f32)(y2 - y1), 2.0)))
 }
 
 Draw3D :: proc() {
-    c : u8 = 0
-    for y : i16 = 0; y < halfHeight; y+=1 {
-        for x : i16 = 0; x < halfWidth; x+=1 {
-            RenderCustomPixel(x, y, c)
-            c += 1
+    wx, wy, wz : [4]i32
+    cs := trig.cos[player.a]
+    sn := trig.sin[player.a]
+
+    // Order sectors by last distance
+    for i : i32 = 0; i < sectorCount; i += 1 {
+        for j : i32 = 0; j < sectorCount - i - 1; j += 1 {
+            if sectors[j].distanceY < sectors[j + 1].distanceY {
+                temp : Sector = sectors[j]
+                sectors[j] = sectors[j + 1]
+                sectors[j + 1] = temp
+            }
         }
     }
-    //frame rate
-    engine.tick += 1
-    if engine.tick > 20 { engine.tick = 0 }
-    RenderCustomPixel(halfWidth, halfHeight + (i16)(engine.tick), 0)
+
+    // Draw Sectors
+    for s : i32 = 0; s < sectorCount; s += 1 {
+        sectors[s].distanceY = 0;
+        for w := sectors[s].wallStart; w < sectors[s].wallEnd; w += 1 {
+            // Offset bottom 2 points by player
+            x1 : i32 = walls[w].x1 - player.x
+            y1 : i32 = walls[w].y1 - player.y
+            x2 : i32 = walls[w].x2 - player.x
+            y2 : i32 = walls[w].y2 - player.y
+            // World X position
+            wx[0] = (i32)((f32)(x1) * cs - (f32)(y1) * sn)
+            wx[1] = (i32)((f32)(x2) * cs - (f32)(y2) * sn)
+            wx[2] = wx[0]
+            wx[3] = wx[1]
+            // World Y position (depth)
+            wy[0] = (i32)((f32)(y1) * cs + (f32)(x1) * sn)
+            wy[1] = (i32)((f32)(y2) * cs + (f32)(x2) * sn)
+            wy[2] = wy[0]
+            wy[3] = wy[1]
+            sectors[s].distanceY += Distance(0, 0, (wx[0] + wx[1]) / 2, (wy[0] + wy[1]) / 2)
+            // World Z position (height)
+            wz[0] = sectors[s].bottom - player.z + (i32)((f32)(player.l * wy[0]) / 32.0)
+            wz[1] = sectors[s].bottom - player.z + (i32)((f32)(player.l * wy[1]) / 32.0)
+            wz[2] = wz[0] + sectors[s].top
+            wz[3] = wz[1] + sectors[s].top
+            // Don't draw if behind player
+            if wy[0] < 1 && wy[1] < 1 { continue } // Wall completely behind player
+            if wy[0] < 1 {
+                wx[0], wy[0], wz[0] = ClipBehindPlayer(wx[0], wy[0], wz[0], wx[1], wy[1], wz[1])
+                wx[2], wy[2], wz[2] = ClipBehindPlayer(wx[2], wy[2], wz[2], wx[3], wy[3], wz[3])
+            }
+            if wy[1] < 1 {
+                wx[1], wy[1], wz[1] = ClipBehindPlayer(wx[1], wy[1], wz[1], wx[0], wy[0], wz[0])
+                wx[3], wy[3], wz[3] = ClipBehindPlayer(wx[3], wy[3], wz[3], wx[2], wy[2], wz[2])
+            }
+            // Screen X Y position
+            wx[0] = wx[0] * 200 / wy[0] + halfWidth; wy[0] = wz[0] * 200 / wy[0] + halfHeight
+            wx[1] = wx[1] * 200 / wy[1] + halfWidth; wy[1] = wz[1] * 200 / wy[1] + halfHeight
+            wx[2] = wx[2] * 200 / wy[2] + halfWidth; wy[2] = wz[2] * 200 / wy[2] + halfHeight
+            wx[3] = wx[3] * 200 / wy[3] + halfWidth; wy[3] = wz[3] * 200 / wy[3] + halfHeight
+            // draw points
+            DrawWall(wx[0], wx[1], wy[0], wy[1], wy[2], wy[3], walls[w].color)
+        }
+        sectors[s].distanceY /= sectors[s].wallEnd - sectors[s].wallStart
+    }
 }
 
 Display :: proc() {
-    if(engine.time.fr1-engine.time.fr2>=50) {
+    if engine.time.fr1 - engine.time.fr2 >= 50  {
         ClearBackground()
         MovePlayer()
         Draw3D()
@@ -200,12 +335,59 @@ Display :: proc() {
     engine.time.fr1 = SDL.GetTicks()
 }
 
-GenerateTexture :: proc(texSource: Texture, allocator := context.allocator, loc := #caller_location) -> []u8 {
-    result := make([]u8, len(texSource.pixels) * 3, allocator, loc)
-    for color, index in texSource.pixels {
-        result[index * 3] = palette[color].r
-        result[index * 3 + 1] = palette[color].g
-        result[index * 3 + 2] = palette[color].b
+testSectors : [16]i32 = {
+    // wall start, end, bottom, top
+    0, 4, 0, 40, // Sector 1
+    4, 8, 0, 40, // Sector 2
+    8, 12, 0, 40, // Sector 3
+    12, 16, 0, 40, // Sector 4
+}
+
+testWalls : [80]i32 = {
+     0, 0, 32, 0,  0,
+    32, 0, 32,32,  1,
+    32,32,  0,32,  0,
+     0,32,  0, 0,  1,
+
+    64, 0, 96, 0, 31,
+    96, 0, 96,32, 32,
+    96,32, 64,32, 31,
+    64,32, 64, 0, 32,
+
+    64,64, 96,64, 16,
+    96,64, 96,96, 17,
+    96,96, 64,96, 16,
+    64,96, 64,64, 17,
+
+     0,64, 32,64, 35,
+    32,64, 32,96, 36,
+    32,96,  0,96, 35,
+     0,96,  0,64, 36,
+}
+
+Init :: proc() {
+    // Store sin/cos in degrees
+    for i := 0; i < 360; i += 1 {
+        trig.cos[i] = math.cos_f32((f32)(i) / 180.0 * math.PI)
+        trig.sin[i] = math.sin_f32((f32)(i) / 180.0 * math.PI)
     }
-    return result
+    // Init player
+    player = Player{70, -110, 20, 0, 0}
+    // Load sectors
+    aggregator, aggregator2 : int
+    for s : i32 = 0; s < sectorCount; s += 1 {
+        sectors[s].wallStart = testSectors[aggregator + 0]
+        sectors[s].wallEnd = testSectors[aggregator + 1]
+        sectors[s].bottom = testSectors[aggregator + 2]
+        sectors[s].top = testSectors[aggregator + 3]
+        aggregator += 4
+        for w : i32 = sectors[s].wallStart; w < sectors[s].wallEnd; w += 1 {
+            walls[w].x1 = testWalls[aggregator2 + 0]
+            walls[w].y1 = testWalls[aggregator2 + 1]
+            walls[w].x2 = testWalls[aggregator2 + 2]
+            walls[w].y2 = testWalls[aggregator2 + 3]
+            walls[w].color = (u8)(testWalls[aggregator2 + 4])
+            aggregator2 += 5
+        }
+    }
 }
